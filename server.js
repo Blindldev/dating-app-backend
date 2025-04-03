@@ -9,7 +9,8 @@ const port = process.env.PORT || 3002;
 const allowedOrigins = [
   'https://blindl-gsb77yru9-blindls-projects.vercel.app', // Vercel frontend
   'http://localhost:3000', // Local development
-  process.env.FRONTEND_URL // Environment variable for custom domain
+  process.env.FRONTEND_URL, // Environment variable for custom domain
+  'https://*.onrender.com' // Render domains
 ].filter(Boolean); // Remove any undefined values
 
 app.use(cors({
@@ -17,7 +18,16 @@ app.use(cors({
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     
-    if (allowedOrigins.indexOf(origin) === -1) {
+    // Check if the origin matches any of the allowed patterns
+    const isAllowed = allowedOrigins.some(allowedOrigin => {
+      if (allowedOrigin.includes('*')) {
+        const pattern = new RegExp('^' + allowedOrigin.replace('*', '.*') + '$');
+        return pattern.test(origin);
+      }
+      return allowedOrigin === origin;
+    });
+    
+    if (!isAllowed) {
       const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
       return callback(new Error(msg), false);
     }
