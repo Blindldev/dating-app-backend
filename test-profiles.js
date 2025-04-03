@@ -1,5 +1,3 @@
-const fetch = require('node-fetch');
-
 const testProfiles = [
   {
     id: '1',
@@ -96,45 +94,4 @@ const testProfiles = [
   }
 ];
 
-module.exports = { testProfiles };
-
-async function createTestProfiles() {
-  console.log('Starting test profile creation...');
-  
-  for (const profile of testProfiles) {
-    try {
-      const response = await fetch('http://localhost:3002/api/profiles', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(profile),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Failed to create profile');
-      }
-
-      const data = await response.json();
-      console.log(`✅ Profile created successfully for ${profile.name}`);
-      console.log('Profile data:', data);
-      console.log('-------------------');
-    } catch (error) {
-      console.error(`❌ Failed to create profile for ${profile.name}:`, error.message);
-    }
-  }
-
-  // Verify profiles were created
-  try {
-    const response = await fetch('http://localhost:3002/api/profiles');
-    const allProfiles = await response.json();
-    console.log('\nTotal profiles created:', allProfiles.length);
-    console.log('All profiles:', allProfiles);
-  } catch (error) {
-    console.error('Failed to fetch profiles:', error.message);
-  }
-}
-
-// Run the tests
-createTestProfiles(); 
+module.exports = { testProfiles }; 

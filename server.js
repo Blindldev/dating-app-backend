@@ -152,10 +152,14 @@ app.get('/api/profiles', (req, res) => {
   res.json(safeProfiles);
 });
 
-const HOST = '0.0.0.0'; // Listen on all network interfaces
+let server;
+if (require.main === module) {
+  const HOST = '0.0.0.0'; // Listen on all network interfaces
+  server = app.listen(port, HOST, () => {
+    console.log(`Server is running on http://${HOST}:${port}`);
+    console.log('You can access the server from your mobile device using your computer\'s IP address');
+    console.log('Test the connection by visiting: http://192.168.12.59:3002/api/test');
+  });
+}
 
-app.listen(port, HOST, () => {
-  console.log(`Server is running on http://${HOST}:${port}`);
-  console.log('You can access the server from your mobile device using your computer\'s IP address');
-  console.log('Test the connection by visiting: http://192.168.12.59:3002/api/test');
-}); 
+module.exports = { app, server }; 
