@@ -9,8 +9,7 @@ const port = process.env.PORT || 3002;
 const allowedOrigins = [
   'https://blindl-gsb77yru9-blindls-projects.vercel.app', // Vercel frontend
   'http://localhost:3000', // Local development
-  process.env.FRONTEND_URL, // Environment variable for custom domain
-  'https://*.onrender.com' // Render domains
+  process.env.FRONTEND_URL // Environment variable for custom domain
 ].filter(Boolean); // Remove any undefined values
 
 app.use(cors({
@@ -18,16 +17,7 @@ app.use(cors({
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     
-    // Check if the origin matches any of the allowed patterns
-    const isAllowed = allowedOrigins.some(allowedOrigin => {
-      if (allowedOrigin.includes('*')) {
-        const pattern = new RegExp('^' + allowedOrigin.replace('*', '.*') + '$');
-        return pattern.test(origin);
-      }
-      return allowedOrigin === origin;
-    });
-    
-    if (!isAllowed) {
+    if (allowedOrigins.indexOf(origin) === -1) {
       const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
       return callback(new Error(msg), false);
     }
@@ -290,11 +280,10 @@ app.get('/api/profiles', (req, res) => {
   res.json(safeProfiles);
 });
 
-// Start the server
-app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
-  console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
-}).on('error', (err) => {
-  console.error('Server failed to start:', err);
-  process.exit(1);
+const HOST = '0.0.0.0'; // Listen on all network interfaces
+
+app.listen(port, HOST, () => {
+  console.log(`Server is running on http://${HOST}:${port}`);
+  console.log('You can access the server from your mobile device using your computer\'s IP address');
+  console.log('Test the connection by visiting: http://192.168.12.59:3002/api/test');
 }); 
