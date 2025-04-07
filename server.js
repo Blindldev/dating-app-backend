@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const { testProfiles } = require('./test-profiles');
+const { findMatches } = require('./services/matchingService');
 
 const app = express();
 const port = process.env.PORT || 3002;
@@ -150,6 +151,23 @@ app.get('/api/profiles', (req, res) => {
   // Remove sensitive data before sending response
   const safeProfiles = profiles.map(({ password, ...profile }) => profile);
   res.json(safeProfiles);
+});
+
+app.get('/api/matches/:profileId', (req, res) => {
+  try {
+    const { profileId } = req.params;
+    const currentProfile = profiles.find(p => p.id === profileId);
+    
+    if (!currentProfile) {
+      return res.status(404).json({ error: 'Profile not found' });
+    }
+
+    const matches = findMatches(profiles, currentProfile);
+    res.json(matches);
+  } catch (error) {
+    console.error('Error finding matches:', error);
+    res.status(500).json({ error: 'Failed to find matches' });
+  }
 });
 
 let server;
