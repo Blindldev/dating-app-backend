@@ -14,6 +14,16 @@ app.use(cors());
 
 app.use(express.json());
 
+// Root route handler
+app.get('/', (req, res) => {
+  res.json({ message: 'Backend server is running' });
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ status: 'healthy' });
+});
+
 // Add error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
