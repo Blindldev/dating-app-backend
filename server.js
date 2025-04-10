@@ -1,10 +1,13 @@
 const express = require('express');
 const cors = require('cors');
+const fs = require('fs').promises;
+const path = require('path');
+const net = require('net');
 const { testProfiles } = require('./test-profiles');
 const { findMatches } = require('./services/matchingService');
 
 const app = express();
-const port = process.env.PORT || 3002;
+const PORT = process.env.PORT || 3002;
 
 // Configure CORS for production
 const allowedOrigins = [
@@ -51,118 +54,138 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Store profiles in memory (replace with database in production)
-let profiles = [...testProfiles];
+// Check if port is in use
+const isPortInUse = (port) => {
+  return new Promise((resolve) => {
+    const server = net.createServer()
+      .once('error', () => {
+        resolve(true);
+      })
+      .once('listening', () => {
+        server.close();
+        resolve(false);
+      })
+      .listen(port);
+  });
+};
 
-// Log profiles for verification
-console.log('Loaded test profiles:', profiles.map(p => ({
-  email: p.email,
-  name: p.name,
-  hasCompleteProfile: Boolean(p.bio && p.interests && p.hobbies)
-})));
+// Kill process using the port
+const killPortProcess = async (port) => {
+  try {
+    const { exec } = require('child_process');
+    const platform = process.platform;
+    let command;
 
-// Sign in endpoint
-app.post('/api/signin', (req, res) => {
-  const { email, password, confirmPassword } = req.body;
-  
-  // Check if this is a new account attempt
-  if (confirmPassword) {
-    if (password !== confirmPassword) {
-      return res.status(400).json({ error: 'Passwords do not match' });
-    }
-    // For new accounts, return success to allow profile creation
-    return res.json({ 
-      message: 'New account created',
-      email,
-      isNewAccount: true
-    });
-  }
-  
-  const profile = profiles.find(p => p.email === email && p.password === password);
-  
-  if (profile) {
-    // Check if it's a test profile
-    const isTestProfile = testProfiles.some(tp => tp.email === email);
-    
-    // For test profiles, return complete profile data
-    if (isTestProfile) {
-      console.log('Test profile found:', profile.email);
-      const { password, ...profileData } = profile;
-      res.json(profileData);
+    if (platform === 'win32') {
+      command = `netstat -ano | findstr :${port}`;
     } else {
-      // For regular profiles, check if profile is complete
-      const { password, ...profileData } = profile;
-      res.json({
-        ...profileData,
-        isProfileComplete: Boolean(profile.bio && profile.interests && profile.hobbies)
-      });
+      command = `lsof -i :${port} | grep LISTEN`;
     }
-  } else {
-    res.status(401).json({ error: 'Invalid email or password' });
+
+    exec(command, (error, stdout) => {
+      if (error) {
+        console.error(`Error checking port: ${error}`);
+        return;
+      }
+
+      if (stdout) {
+        const pid = platform === 'win32' 
+          ? stdout.split(' ').pop().trim()
+          : stdout.split(/\s+/)[1];
+
+        if (pid) {
+          const killCommand = platform === 'win32'
+            ? `taskkill /F /PID ${pid}`
+            : `kill -9 ${pid}`;
+
+          exec(killCommand, (killError) => {
+            if (killError) {
+              console.error(`Error killing process: ${killError}`);
+            } else {
+              console.log(`Successfully killed process on port ${port}`);
+            }
+          });
+        }
+      }
+    });
+  } catch (err) {
+    console.error('Error in killPortProcess:', err);
+  }
+};
+
+// Load test profiles
+const loadTestProfiles = async () => {
+  try {
+    const data = await fs.readFile(path.join(__dirname, 'test-profiles.json'), 'utf8');
+    const profiles = JSON.parse(data);
+    console.log('Loaded test profiles:', profiles);
+    return profiles;
+  } catch (error) {
+    console.error('Error loading test profiles:', error);
+    return [];
+  }
+};
+
+// Routes
+app.get('/api/profiles', async (req, res) => {
+  try {
+    const profiles = await loadTestProfiles();
+    res.json(profiles);
+  } catch (error) {
+    console.error('Error fetching profiles:', error);
+    res.status(500).json({ error: 'Failed to fetch profiles' });
   }
 });
 
-// Profile creation endpoint
 app.post('/api/profiles', async (req, res) => {
   try {
-    const profileData = req.body;
-    
-    // Validate required fields
-    const requiredFields = [
-      'name', 'age', 'gender', 'lookingFor', 'location', 'occupation', 
-      'education', 'bio', 'interests', 'hobbies', 'languages', 
-      'relationshipGoals', 'smoking', 'drinking', 'firstDateIdeas'
-    ];
-
-    const missingFields = requiredFields.filter(field => !profileData[field]);
-    if (missingFields.length > 0) {
-      return res.status(400).json({
-        error: `Missing required fields: ${missingFields.join(', ')}`
-      });
-    }
-
-    // Create new profile
+    const profiles = await loadTestProfiles();
     const newProfile = {
       id: Date.now().toString(),
-      ...profileData,
-      email: `${profileData.name.toLowerCase().replace(' ', '.')}@example.com`,
-      createdAt: new Date().toISOString(),
-      status: 'active',
-      settings: {
-        notifications: true,
-        profileVisibility: 'public',
-        showOnlineStatus: true
-      }
+      ...req.body,
+      hasCompleteProfile: true
     };
-
     profiles.push(newProfile);
-
-    // Remove sensitive data before sending response
-    const { password, ...profileResponse } = newProfile;
-    res.status(201).json(profileResponse);
+    await fs.writeFile(
+      path.join(__dirname, 'test-profiles.json'),
+      JSON.stringify(profiles, null, 2)
+    );
+    res.status(201).json(newProfile);
   } catch (error) {
-    console.error('Profile creation error:', error);
+    console.error('Error creating profile:', error);
     res.status(500).json({ error: 'Failed to create profile' });
   }
 });
 
-// Get all profiles
-app.get('/api/profiles', (req, res) => {
-  // Remove sensitive data before sending response
-  const safeProfiles = profiles.map(({ password, ...profile }) => profile);
-  res.json(safeProfiles);
+app.put('/api/profiles/:id', async (req, res) => {
+  try {
+    const profiles = await loadTestProfiles();
+    const index = profiles.findIndex(p => p.id === req.params.id);
+    if (index === -1) {
+      return res.status(404).json({ error: 'Profile not found' });
+    }
+    profiles[index] = { ...profiles[index], ...req.body };
+    await fs.writeFile(
+      path.join(__dirname, 'test-profiles.json'),
+      JSON.stringify(profiles, null, 2)
+    );
+    res.json(profiles[index]);
+  } catch (error) {
+    console.error('Error updating profile:', error);
+    res.status(500).json({ error: 'Failed to update profile' });
+  }
 });
 
 app.get('/api/matches/:profileId', (req, res) => {
   try {
     const { profileId } = req.params;
-    const currentProfile = profiles.find(p => p.id === profileId);
+    const currentProfile = testProfiles.find(p => p.id === profileId);
     
     if (!currentProfile) {
       return res.status(404).json({ error: 'Profile not found' });
     }
 
-    const matches = findMatches(profiles, currentProfile);
+    const matches = findMatches(testProfiles, currentProfile);
     res.json(matches);
   } catch (error) {
     console.error('Error finding matches:', error);
@@ -170,14 +193,26 @@ app.get('/api/matches/:profileId', (req, res) => {
   }
 });
 
-let server;
-if (require.main === module) {
-  const HOST = '0.0.0.0'; // Listen on all network interfaces
-  server = app.listen(port, HOST, () => {
-    console.log(`Server is running on http://${HOST}:${port}`);
-    console.log('You can access the server from your mobile device using your computer\'s IP address');
-    console.log('Test the connection by visiting: http://192.168.12.59:3002/api/test');
-  });
-}
+// Start server with port check
+const startServer = async () => {
+  try {
+    const portInUse = await isPortInUse(PORT);
+    if (portInUse) {
+      console.log(`Port ${PORT} is in use. Attempting to kill the process...`);
+      await killPortProcess(PORT);
+      // Wait a bit for the port to be released
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
 
-module.exports = { app, server }; 
+    app.listen(PORT, () => {
+      console.log(`Server is running on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error('Error starting server:', error);
+    process.exit(1);
+  }
+};
+
+startServer();
+
+module.exports = { app }; 
