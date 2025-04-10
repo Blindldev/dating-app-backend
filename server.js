@@ -9,35 +9,11 @@ const { findMatches } = require('./services/matchingService');
 const app = express();
 const PORT = process.env.PORT || 3002;
 
-// Enable CORS for all routes
+// Simple CORS configuration
 app.use(cors({
-  origin: ['https://blindl-dfxlc8olk-blindls-projects.vercel.app', 'http://localhost:3000'],
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: [
-    'Content-Type',
-    'Authorization',
-    'X-Requested-With',
-    'Accept',
-    'Origin',
-    'Access-Control-Request-Method',
-    'Access-Control-Request-Headers'
-  ],
-  exposedHeaders: ['Content-Range', 'X-Content-Range'],
-  maxAge: 600
+  origin: true, // This will reflect the request origin
+  credentials: true
 }));
-
-// Handle preflight requests
-app.options('*', cors());
-
-// Add headers to all responses
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Origin', req.headers.origin || 'https://blindl-dfxlc8olk-blindls-projects.vercel.app');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
-  next();
-});
 
 app.use(express.json());
 
