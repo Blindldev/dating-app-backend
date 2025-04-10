@@ -134,13 +134,15 @@ const killPortProcess = async (port) => {
 // Load test profiles
 const loadTestProfiles = async () => {
   try {
+    // First try to read from the JSON file
     const data = await fs.readFile(path.join(__dirname, 'test-profiles.json'), 'utf8');
     const profiles = JSON.parse(data);
-    console.log('Loaded test profiles:', profiles);
+    console.log('Loaded profiles from file:', profiles);
     return profiles;
   } catch (error) {
-    console.error('Error loading test profiles:', error);
-    return [];
+    // If file doesn't exist or can't be read, use the imported testProfiles
+    console.log('Using default test profiles:', testProfiles);
+    return testProfiles;
   }
 };
 
@@ -151,7 +153,8 @@ app.get('/api/profiles', async (req, res) => {
     res.json(profiles);
   } catch (error) {
     console.error('Error fetching profiles:', error);
-    res.status(500).json({ error: 'Failed to fetch profiles' });
+    // Return testProfiles as fallback
+    res.json(testProfiles);
   }
 });
 
@@ -164,10 +167,16 @@ app.post('/api/profiles', async (req, res) => {
       hasCompleteProfile: true
     };
     profiles.push(newProfile);
-    await fs.writeFile(
-      path.join(__dirname, 'test-profiles.json'),
-      JSON.stringify(profiles, null, 2)
-    );
+    
+    try {
+      await fs.writeFile(
+        path.join(__dirname, 'test-profiles.json'),
+        JSON.stringify(profiles, null, 2)
+      );
+    } catch (writeError) {
+      console.warn('Could not write to profiles file:', writeError);
+    }
+    
     res.status(201).json(newProfile);
   } catch (error) {
     console.error('Error creating profile:', error);
