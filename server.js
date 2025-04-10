@@ -10,10 +10,7 @@ const app = express();
 const PORT = process.env.PORT || 3002;
 
 // Enable CORS for all routes
-app.use(cors({
-  origin: ['https://blindl-bxkg4gpff-blindls-projects.vercel.app', 'http://localhost:3000'],
-  credentials: true
-}));
+app.use(cors());
 
 app.use(express.json());
 
