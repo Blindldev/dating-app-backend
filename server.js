@@ -24,12 +24,6 @@ app.get('/health', (req, res) => {
   res.json({ status: 'healthy' });
 });
 
-// Add error handling middleware
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ error: 'Something went wrong!' });
-});
-
 // Add a test endpoint to verify server is accessible
 app.get('/api/test', (req, res) => {
   res.json({ 
@@ -206,5 +200,11 @@ const startServer = async () => {
 };
 
 startServer();
+
+// Add error handling middleware at the end
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ error: 'Something went wrong!' });
+});
 
 module.exports = { app }; 
