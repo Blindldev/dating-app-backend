@@ -43,6 +43,35 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Signin endpoint
+app.post('/api/signin', (req, res) => {
+  const { email, password } = req.body;
+  
+  // For testing purposes, accept any email/password
+  if (email && password) {
+    res.json({
+      id: '1',
+      email: email,
+      name: email.split('@')[0],
+      createdAt: new Date().toISOString()
+    });
+  } else {
+    res.status(400).json({ error: 'Email and password are required' });
+  }
+});
+
+// Check email endpoint
+app.post('/api/check-email', (req, res) => {
+  const { email } = req.body;
+  
+  if (email) {
+    // For testing purposes, always return 200
+    res.status(200).json({ exists: true });
+  } else {
+    res.status(400).json({ error: 'Email is required' });
+  }
+});
+
 // Check if port is in use
 const isPortInUse = (port) => {
   return new Promise((resolve) => {
