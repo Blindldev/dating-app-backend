@@ -9,24 +9,9 @@ const { findMatches } = require('./services/matchingService');
 const app = express();
 const PORT = process.env.PORT || 3002;
 
-// Configure CORS for production
-const allowedOrigins = [
-  'https://blindl-gsb77yru9-blindls-projects.vercel.app', // Vercel frontend
-  'http://localhost:3000', // Local development
-  process.env.FRONTEND_URL // Environment variable for custom domain
-].filter(Boolean); // Remove any undefined values
-
+// Enable CORS for all routes
 app.use(cors({
-  origin: function(origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.indexOf(origin) === -1) {
-      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-      return callback(new Error(msg), false);
-    }
-    return callback(null, true);
-  },
+  origin: ['https://blindl-bxkg4gpff-blindls-projects.vercel.app', 'http://localhost:3000'],
   credentials: true
 }));
 
