@@ -70,4 +70,50 @@ If user clicks "Reschedule":
 - User selects a new date/time (must be after the original)
 
 If user clicks "Decline":
-- Show a sad face and a message: "Hope we can find another match soon!" 
+- Show a sad face and a message: "Hope we can find another match soon!"
+
+App Objectives and Requirements
+
+1. Welcome/Sign-in Screen
+   - Email verification
+   - Password creation
+   - Load test profile option
+   - Error handling for invalid inputs
+   - Success notifications
+
+2. Onboarding Process
+   - Multi-step form
+   - Progress tracking
+   - Required fields validation
+   - Chicago-specific location data
+   - Tag-based input for multiple values
+   - Success notifications
+
+3. Waiting/Profile Review Screen
+   - Profile display
+   - Edit profile option
+   - Status indicators
+   - Loading states
+   - Error handling
+
+4. Match Notification
+   - Push notifications
+   - Email notifications
+   - Match details display
+   - Accept/Decline options
+   - Success notifications
+
+5. Version Control and Deployment Rules
+   - After each significant change:
+     1. Increment version number
+     2. Push frontend changes to GitHub with commit message "Version X"
+     3. Push backend changes to GitHub with commit message "Version X"
+     4. Start both servers locally:
+        - Backend on port 3002
+        - Frontend on port 3000
+     5. Verify both servers are running
+     6. Test the changes
+   - Version numbering starts at 1 and increments with each deployment
+   - Both repositories must be in sync with the same version number
+   - Local testing is required before pushing changes
+   - Document any breaking changes in commit messages 

@@ -13,6 +13,25 @@ const PORT = process.env.PORT || 3002;
 app.use(cors());
 app.use(express.json());
 
+// Chicago-specific data
+const chicagoNeighborhoods = [
+  'Loop', 'River North', 'Gold Coast', 'Lincoln Park', 'Lakeview',
+  'Wicker Park', 'Bucktown', 'Logan Square', 'West Loop', 'South Loop'
+];
+
+const chicagoDateSpots = [
+  'Art Institute of Chicago',
+  'Millennium Park',
+  'Navy Pier',
+  'Garfield Park Conservatory',
+  'Lincoln Park Zoo',
+  'Chicago Riverwalk',
+  'Museum of Contemporary Art',
+  'Grant Park',
+  'Shedd Aquarium',
+  'Field Museum'
+];
+
 // Root route handler
 app.get('/', (req, res) => {
   res.json({ message: 'Backend server is running' });
@@ -164,32 +183,158 @@ app.get('/api/matches/:profileId', (req, res) => {
   }
 });
 
-// Start server with port check
-const startServer = async () => {
-  try {
-    const portInUse = await isPortInUse(PORT);
-    if (portInUse) {
-      console.log(`Port ${PORT} is in use. Attempting to kill the process...`);
-      await killPortProcess(PORT);
-      // Wait a moment for the port to be freed
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-    
-    app.listen(PORT, () => {
-      console.log(`Server is running on port ${PORT}`);
-    });
-  } catch (error) {
-    console.error('Error starting server:', error);
-    process.exit(1);
-  }
-};
-
-startServer();
-
-// Add error handling middleware at the end
+// Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  res.status(500).json({ error: 'Something went wrong!' });
+  res.status(500).json({ message: 'Something went wrong!' });
+});
+
+// Routes
+app.post('/api/auth/check-email', (req, res) => {
+  try {
+    const { email } = req.body;
+    const profile = testProfiles.find(p => p.email === email);
+    
+    if (!profile) {
+      return res.status(404).json({ message: 'Email not found' });
+    }
+    
+    res.json({ message: 'Email found' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.post('/api/auth/signin', (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const profile = testProfiles.find(p => p.email === email && p.password === password);
+    
+    if (!profile) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+    
+    // Remove password from response
+    const { password: _, ...profileWithoutPassword } = profile;
+    res.json({ profile: profileWithoutPassword });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.get('/api/profiles/current', (req, res) => {
+  try {
+    // For demo purposes, return the first test profile
+    const profile = testProfiles[0];
+    if (!profile) {
+      return res.status(404).json({ message: 'No profile found' });
+    }
+    
+    // Remove password from response
+    const { password: _, ...profileWithoutPassword } = profile;
+    res.json(profileWithoutPassword);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.get('/api/chicago/neighborhoods', (req, res) => {
+  try {
+    res.json(chicagoNeighborhoods);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.get('/api/chicago/date-spots', (req, res) => {
+  try {
+    res.json(chicagoDateSpots);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.post('/api/profiles', (req, res) => {
+  try {
+    const updatedProfile = req.body;
+    // In a real app, we would save this to a database
+    res.json(updatedProfile);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.post('/api/matches/test', (req, res) => {
+  try {
+    // For demo purposes, return a random match
+    const currentProfile = testProfiles[0];
+    const potentialMatches = testProfiles.filter(p => 
+      p.gender !== currentProfile.gender && 
+      p.id !== currentProfile.id
+    );
+    
+    if (potentialMatches.length === 0) {
+      return res.status(404).json({ message: 'No matches found' });
+    }
+    
+    const randomMatch = potentialMatches[Math.floor(Math.random() * potentialMatches.length)];
+    const { password: _, ...matchWithoutPassword } = randomMatch;
+    
+    // Generate a random date and time for the match
+    const date = new Date();
+    date.setDate(date.getDate() + Math.floor(Math.random() * 7) + 1); // 1-7 days from now
+    const hours = Math.floor(Math.random() * 12) + 12; // 12-23
+    const minutes = Math.floor(Math.random() * 60);
+    date.setHours(hours, minutes);
+    
+    // Select a random date spot
+    const dateSpot = chicagoDateSpots[Math.floor(Math.random() * chicagoDateSpots.length)];
+    
+    res.json({
+      match: matchWithoutPassword,
+      date: date.toISOString(),
+      location: dateSpot,
+      commonInterests: currentProfile.interests.filter(interest => 
+        randomMatch.interests.includes(interest)
+      )
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Start server
+const server = app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});
+
+// Handle server errors
+server.on('error', (error) => {
+  if (error.code === 'EADDRINUSE') {
+    console.log(`Port ${PORT} is in use. Attempting to kill the process...`);
+    require('child_process').exec(`lsof -i :${PORT} | grep LISTEN | awk '{print $2}' | xargs kill -9`, () => {
+      server.listen(PORT);
+    });
+  } else {
+    console.error('Server error:', error);
+  }
+});
+
+// Handle process termination
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received. Shutting down gracefully...');
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received. Shutting down gracefully...');
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
 });
 
 module.exports = { app }; 
