@@ -3,15 +3,125 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const net = require('net');
+const { OAuth2Client } = require('google-auth-library');
 const { testProfiles } = require('./test-profiles');
 const { findMatches } = require('./services/matchingService');
 
 const app = express();
 const PORT = process.env.PORT || 3002;
 
-// Middleware
-app.use(cors());
+// Configure CORS
+app.use(cors({
+  origin: ['http://localhost:3000', 'http://localhost:3001'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Set-Cookie'],
+  maxAge: 86400
+}));
+
+// Add security headers
+app.use((req, res, next) => {
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  next();
+});
+
 app.use(express.json());
+
+// Initialize Google OAuth client
+const googleClient = new OAuth2Client({
+  clientId: process.env.GOOGLE_CLIENT_ID,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET
+});
+
+// Middleware to verify Google token
+const verifyGoogleToken = async (req, res, next) => {
+  try {
+    const { token } = req.body;
+    if (!token) {
+      return res.status(400).json({ error: 'No token provided' });
+    }
+
+    const ticket = await googleClient.verifyIdToken({
+      idToken: token,
+      audience: process.env.GOOGLE_CLIENT_ID
+    });
+
+    const payload = ticket.getPayload();
+    
+    // Verify the token was issued to our application
+    if (payload.aud !== process.env.GOOGLE_CLIENT_ID) {
+      throw new Error('Invalid token audience');
+    }
+
+    // Verify the token was issued by Google
+    if (payload.iss !== 'https://accounts.google.com' && 
+        payload.iss !== 'accounts.google.com') {
+      throw new Error('Invalid token issuer');
+    }
+
+    req.googleUser = {
+      email: payload.email,
+      name: payload.name,
+      picture: payload.picture,
+      email_verified: payload.email_verified
+    };
+    next();
+  } catch (error) {
+    console.error('Google token verification error:', error);
+    res.status(401).json({ error: 'Invalid token' });
+  }
+};
+
+// Google authentication endpoint
+app.post('/api/auth/google', verifyGoogleToken, async (req, res) => {
+  try {
+    const { email, name, picture } = req.googleUser;
+    
+    // Check if user exists in test profiles
+    let user = testProfiles.find(profile => profile.email === email);
+    
+    if (!user) {
+      // Create new user from Google profile with minimal required fields
+      user = {
+        id: testProfiles.length + 1,
+        email: email,
+        name: name,
+        photos: [picture],
+        status: 'active',
+        createdAt: new Date().toISOString(),
+        settings: {
+          notifications: true,
+          emailUpdates: true
+        },
+        // Initialize empty arrays for required fields
+        interests: [],
+        hobbies: [],
+        languages: [],
+        firstDateIdeas: [],
+        // Add other required fields with default values
+        age: null,
+        gender: null,
+        lookingFor: null,
+        location: null,
+        occupation: null,
+        education: null,
+        bio: null,
+        relationshipGoals: null,
+        smoking: null,
+        drinking: null
+      };
+      testProfiles.push(user);
+    }
+
+    res.json(user);
+  } catch (error) {
+    console.error('Google auth error:', error);
+    res.status(500).json({ error: 'Authentication failed' });
+  }
+});
 
 // Chicago-specific data
 const chicagoNeighborhoods = [
@@ -58,87 +168,121 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Signin endpoint
-app.post('/api/signin', (req, res) => {
-  const { email, password } = req.body;
-  
-  // For testing purposes, accept any email/password
-  if (email && password) {
-    res.json({
-      id: '1',
-      email: email,
-      name: email.split('@')[0],
-      createdAt: new Date().toISOString()
-    });
-  } else {
-    res.status(400).json({ error: 'Email and password are required' });
-  }
-});
-
-// Check email endpoint
-app.post('/api/check-email', (req, res) => {
-  const { email } = req.body;
-  
-  if (email) {
-    // For testing purposes, always return 200
-    res.status(200).json({ exists: true });
-  } else {
-    res.status(400).json({ error: 'Email is required' });
-  }
-});
-
-// Helper function to check if a port is in use
-const isPortInUse = (port) => {
-  return new Promise((resolve) => {
-    const server = net.createServer()
-      .once('error', () => resolve(true))
-      .once('listening', () => {
-        server.close();
-        resolve(false);
-      })
-      .listen(port);
-  });
-};
-
-// Helper function to kill process using a port
-const killPortProcess = async (port) => {
+// Check if email exists
+app.post('/api/auth/check-email', async (req, res) => {
   try {
-    if (process.platform === 'win32') {
-      const { exec } = require('child_process');
-      exec(`netstat -ano | findstr :${port}`, (err, stdout) => {
-        if (err) return;
-        const lines = stdout.split('\n');
-        for (const line of lines) {
-          const parts = line.trim().split(/\s+/);
-          if (parts.length > 4) {
-            const pid = parts[parts.length - 1];
-            exec(`taskkill /F /PID ${pid}`);
-          }
+    const { email } = req.body;
+    const user = testProfiles.find(profile => profile.email === email);
+    res.json({ exists: !!user });
+  } catch (error) {
+    console.error('Email check error:', error);
+    res.status(500).json({ error: 'Failed to check email' });
+  }
+});
+
+// Sign in or create new user
+app.post('/api/auth/signin', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    // Check if user exists
+    let user = testProfiles.find(profile => profile.email === email);
+    
+    if (!user) {
+      // Create new user
+      user = {
+        id: testProfiles.length + 1,
+        email,
+        password, // Note: In production, hash the password
+        name: '',
+        age: null,
+        gender: null,
+        lookingFor: null,
+        location: null,
+        occupation: null,
+        education: null,
+        bio: null,
+        interests: [],
+        hobbies: [],
+        languages: [],
+        photos: [],
+        firstDateIdeas: [],
+        relationshipGoals: null,
+        smoking: null,
+        drinking: null,
+        status: 'active',
+        createdAt: new Date().toISOString(),
+        settings: {
+          notifications: true,
+          emailUpdates: true
         }
-      });
+      };
+      testProfiles.push(user);
+      res.json({ profile: user, isNewUser: true });
     } else {
-      const { exec } = require('child_process');
-      exec(`lsof -i :${port} | grep LISTEN | awk '{print $2}' | xargs kill -9`);
+      // Verify password for existing user
+      if (user.password !== password) {
+        return res.status(401).json({ error: 'Invalid password' });
+      }
+      res.json({ profile: user, isNewUser: false });
     }
   } catch (error) {
-    console.error('Error killing port process:', error);
+    console.error('Sign in error:', error);
+    res.status(500).json({ error: 'Authentication failed' });
   }
-};
+});
 
-// Load test profiles
-const loadTestProfiles = () => {
+// Get current profile
+app.get('/api/profiles/current', (req, res) => {
   try {
-    const profilesPath = path.join(__dirname, 'test-profiles.json');
-    if (fs.existsSync(profilesPath)) {
-      const data = fs.readFileSync(profilesPath, 'utf8');
-      return JSON.parse(data);
+    // For demo purposes, return the first test profile
+    const profile = testProfiles[0];
+    if (!profile) {
+      return res.status(404).json({ message: 'No profile found' });
     }
-    return [];
+    
+    // Remove password from response
+    const { password: _, ...profileWithoutPassword } = profile;
+    res.json(profileWithoutPassword);
   } catch (error) {
-    console.error('Error loading test profiles:', error);
-    return [];
+    res.status(500).json({ message: error.message });
   }
-};
+});
+
+// Update profile
+app.post('/api/profiles', (req, res) => {
+  try {
+    const updatedProfile = req.body;
+    // In a real app, we would save this to a database
+    res.json(updatedProfile);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Get matches
+app.get('/api/matches/:profileId', (req, res) => {
+  try {
+    const { profileId } = req.params;
+    const currentProfile = testProfiles.find(p => p.id === profileId);
+    
+    if (!currentProfile) {
+      return res.status(404).json({ message: 'Profile not found' });
+    }
+
+    const matches = findMatches(testProfiles, currentProfile);
+    res.json(matches);
+  } catch (error) {
+    console.error('Error finding matches:', error);
+    res.status(500).json({ message: 'Failed to find matches' });
+  }
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ error: 'Something broke!' });
+});
 
 // Routes
 app.get('/api/profiles', (req, res) => {
@@ -166,78 +310,6 @@ app.put('/api/profiles/:id', (req, res) => {
   res.json(profiles[index]);
 });
 
-app.get('/api/matches/:profileId', (req, res) => {
-  try {
-    const { profileId } = req.params;
-    const currentProfile = testProfiles.find(p => p.id === profileId);
-    
-    if (!currentProfile) {
-      return res.status(404).json({ error: 'Profile not found' });
-    }
-
-    const matches = findMatches(testProfiles, currentProfile);
-    res.json(matches);
-  } catch (error) {
-    console.error('Error finding matches:', error);
-    res.status(500).json({ error: 'Failed to find matches' });
-  }
-});
-
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ message: 'Something went wrong!' });
-});
-
-// Routes
-app.post('/api/auth/check-email', (req, res) => {
-  try {
-    const { email } = req.body;
-    const profile = testProfiles.find(p => p.email === email);
-    
-    if (!profile) {
-      return res.status(404).json({ message: 'Email not found' });
-    }
-    
-    res.json({ message: 'Email found' });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-app.post('/api/auth/signin', (req, res) => {
-  try {
-    const { email, password } = req.body;
-    const profile = testProfiles.find(p => p.email === email && p.password === password);
-    
-    if (!profile) {
-      return res.status(401).json({ message: 'Invalid credentials' });
-    }
-    
-    // Remove password from response
-    const { password: _, ...profileWithoutPassword } = profile;
-    res.json({ profile: profileWithoutPassword });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-app.get('/api/profiles/current', (req, res) => {
-  try {
-    // For demo purposes, return the first test profile
-    const profile = testProfiles[0];
-    if (!profile) {
-      return res.status(404).json({ message: 'No profile found' });
-    }
-    
-    // Remove password from response
-    const { password: _, ...profileWithoutPassword } = profile;
-    res.json(profileWithoutPassword);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
 app.get('/api/chicago/neighborhoods', (req, res) => {
   try {
     res.json(chicagoNeighborhoods);
@@ -249,16 +321,6 @@ app.get('/api/chicago/neighborhoods', (req, res) => {
 app.get('/api/chicago/date-spots', (req, res) => {
   try {
     res.json(chicagoDateSpots);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-app.post('/api/profiles', (req, res) => {
-  try {
-    const updatedProfile = req.body;
-    // In a real app, we would save this to a database
-    res.json(updatedProfile);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
