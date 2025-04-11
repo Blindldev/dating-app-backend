@@ -1,0 +1,73 @@
+📱 GENERAL APP OBJECTIVES
+Ensure full mobile optimization across all pages and UI elements.
+
+Do not include any swiping functionality — this app must be swipe-free.
+
+🔐 SCREEN 1: Welcome / Sign-In
+UI Elements:
+Display a text field prompting the user to enter their email.
+
+Show two buttons:
+- "Next"
+- "Load Test Profile"
+
+Logic:
+When user enters an email and clicks "Next":
+- Prompt them to enter a password.
+- Reveal a "Create Account" button.
+
+When user clicks "Load Test Profile":
+- Auto-fill email and password fields from a testProfiles.json file.
+- Automatically log the user into the test account.
+
+🧭 SCREEN 2: Onboarding (New Account Setup)
+General Questions:
+Prompt the user with a series of basic dating app questions:
+- Name
+- Age
+- Gender
+- Interests
+- Preferences
+
+Include a toggle input labeled "Looking for..." with options:
+- "Friends"
+- "Dating"
+- "Both"
+
+Chicago-Specific Questions:
+- "What neighborhood in Chicago are you in?" (dropdown or freeform input)
+- Show a dropdown list of local Chicago date spots
+- "Would you like to go on a date at any of these spots?" (multi-select or single-select dropdown)
+
+⏳ SCREEN 3: Waiting / Profile Review
+Display all user responses from onboarding in a structured, reviewable format.
+Allow the user to edit any of their previous answers.
+In the background or side panel, show a rotating carousel of blurred-out people.
+
+Display the message:
+"You may close this page — we will notify you via email once we find a good match!"
+
+Include a button labeled "Test Match Notification" (for demo purposes only).
+
+💌 TEST MATCH NOTIFICATION (Triggered When Match Is Found)
+Trigger Conditions:
+- Only show this popup when a boolean value foundMatch = true
+- The "Test Match Notification" button should simulate this popup
+
+Match Display Logic:
+- Select a profile from the opposite gender in the random profile list
+- Show overlapping interests or answers between the user and the match
+- Display a question: "Are you free [X day] at [Y time] for a date at [Z location]?"
+  (X, Y, Z are dynamic values based on the match data)
+
+User Response Buttons:
+If user clicks "Accept":
+- Show confetti animation and a "Congrats!" message
+- Provide a Google Calendar invite link
+
+If user clicks "Reschedule":
+- Open a calendar popup
+- User selects a new date/time (must be after the original)
+
+If user clicks "Decline":
+- Show a sad face and a message: "Hope we can find another match soon!" 
