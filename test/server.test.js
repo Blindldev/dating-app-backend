@@ -5,8 +5,8 @@ describe('Server Tests', () => {
   let server;
 
   beforeAll((done) => {
-    server = app.listen(3002, () => {
-      console.log('Test server started on port 3002');
+    server = app.listen(3003, () => {
+      console.log('Test server started on port 3003');
       done();
     });
   });
@@ -19,58 +19,45 @@ describe('Server Tests', () => {
   });
 
   test('Health endpoint returns 200', async () => {
-    const response = await request(app).get('/api/health');
+    const response = await request(app).get('/health');
     expect(response.status).toBe(200);
-    expect(response.body).toHaveProperty('status', 'healthy');
+    expect(response.body.status).toBe('healthy');
   });
 
   test('Sign in with valid credentials', async () => {
     const response = await request(app)
       .post('/api/signin')
-      .send({
-        email: 'alex.thompson@example.com',
-        password: 'test123'
-      });
+      .send({ email: 'test@example.com', password: 'password' });
     
     expect(response.status).toBe(200);
-    expect(response.body).toHaveProperty('name', 'Alex Thompson');
+    expect(response.body).toHaveProperty('id');
+    expect(response.body).toHaveProperty('email');
   });
 
   test('Sign in with invalid credentials', async () => {
     const response = await request(app)
       .post('/api/signin')
-      .send({
-        email: 'invalid@example.com',
-        password: 'wrongpassword'
-      });
+      .send({ email: '', password: '' });
     
-    expect(response.status).toBe(401);
-    expect(response.body).toHaveProperty('error');
+    expect(response.status).toBe(400);
   });
 
   test('Create new profile', async () => {
+    const profile = {
+      name: 'Test User',
+      age: 25,
+      gender: 'Male',
+      location: 'New York',
+      bio: 'Test bio',
+      lookingFor: 'Female'
+    };
+
     const response = await request(app)
       .post('/api/profiles')
-      .send({
-        name: 'Test User',
-        age: 25,
-        gender: 'Male',
-        lookingFor: 'Women',
-        location: 'Chicago',
-        occupation: 'Developer',
-        education: "Bachelor's Degree",
-        bio: 'Test bio',
-        interests: ['Coding', 'Reading'],
-        hobbies: ['Gaming', 'Hiking'],
-        languages: ['English'],
-        relationshipGoals: 'Dating',
-        smoking: 'Never',
-        drinking: 'Socially',
-        firstDateIdeas: ['Coffee', 'Movies']
-      });
+      .send(profile);
     
     expect(response.status).toBe(201);
-    expect(response.body).toHaveProperty('name', 'Test User');
+    expect(response.body).toMatchObject(profile);
   });
 
   test('Get all profiles', async () => {

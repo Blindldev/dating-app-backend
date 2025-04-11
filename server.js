@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const fs = require('fs').promises;
+const fs = require('fs');
 const path = require('path');
 const net = require('net');
 const { testProfiles } = require('./test-profiles');
@@ -9,12 +9,8 @@ const { findMatches } = require('./services/matchingService');
 const app = express();
 const PORT = process.env.PORT || 3002;
 
-// Simple CORS configuration
-app.use(cors({
-  origin: true, // This will reflect the request origin
-  credentials: true
-}));
-
+// Middleware
+app.use(cors());
 app.use(express.json());
 
 // Root route handler
@@ -72,13 +68,11 @@ app.post('/api/check-email', (req, res) => {
   }
 });
 
-// Check if port is in use
+// Helper function to check if a port is in use
 const isPortInUse = (port) => {
   return new Promise((resolve) => {
     const server = net.createServer()
-      .once('error', () => {
-        resolve(true);
-      })
+      .once('error', () => resolve(true))
       .once('listening', () => {
         server.close();
         resolve(false);
@@ -87,120 +81,70 @@ const isPortInUse = (port) => {
   });
 };
 
-// Kill process using the port
+// Helper function to kill process using a port
 const killPortProcess = async (port) => {
   try {
-    const { exec } = require('child_process');
-    const platform = process.platform;
-    let command;
-
-    if (platform === 'win32') {
-      command = `netstat -ano | findstr :${port}`;
-    } else {
-      command = `lsof -i :${port} | grep LISTEN`;
-    }
-
-    exec(command, (error, stdout) => {
-      if (error) {
-        console.error(`Error checking port: ${error}`);
-        return;
-      }
-
-      if (stdout) {
-        const pid = platform === 'win32' 
-          ? stdout.split(' ').pop().trim()
-          : stdout.split(/\s+/)[1];
-
-        if (pid) {
-          const killCommand = platform === 'win32'
-            ? `taskkill /F /PID ${pid}`
-            : `kill -9 ${pid}`;
-
-          exec(killCommand, (killError) => {
-            if (killError) {
-              console.error(`Error killing process: ${killError}`);
-            } else {
-              console.log(`Successfully killed process on port ${port}`);
-            }
-          });
+    if (process.platform === 'win32') {
+      const { exec } = require('child_process');
+      exec(`netstat -ano | findstr :${port}`, (err, stdout) => {
+        if (err) return;
+        const lines = stdout.split('\n');
+        for (const line of lines) {
+          const parts = line.trim().split(/\s+/);
+          if (parts.length > 4) {
+            const pid = parts[parts.length - 1];
+            exec(`taskkill /F /PID ${pid}`);
+          }
         }
-      }
-    });
-  } catch (err) {
-    console.error('Error in killPortProcess:', err);
+      });
+    } else {
+      const { exec } = require('child_process');
+      exec(`lsof -i :${port} | grep LISTEN | awk '{print $2}' | xargs kill -9`);
+    }
+  } catch (error) {
+    console.error('Error killing port process:', error);
   }
 };
 
 // Load test profiles
-const loadTestProfiles = async () => {
+const loadTestProfiles = () => {
   try {
-    // First try to read from the JSON file
-    const data = await fs.readFile(path.join(__dirname, 'test-profiles.json'), 'utf8');
-    const profiles = JSON.parse(data);
-    console.log('Loaded profiles from file:', profiles);
-    return profiles;
+    const profilesPath = path.join(__dirname, 'test-profiles.json');
+    if (fs.existsSync(profilesPath)) {
+      const data = fs.readFileSync(profilesPath, 'utf8');
+      return JSON.parse(data);
+    }
+    return [];
   } catch (error) {
-    // If file doesn't exist or can't be read, use the imported testProfiles
-    console.log('Using default test profiles:', testProfiles);
-    return testProfiles;
+    console.error('Error loading test profiles:', error);
+    return [];
   }
 };
 
 // Routes
-app.get('/api/profiles', async (req, res) => {
-  try {
-    const profiles = await loadTestProfiles();
-    res.json(profiles);
-  } catch (error) {
-    console.error('Error fetching profiles:', error);
-    // Return testProfiles as fallback
-    res.json(testProfiles);
-  }
+app.get('/api/profiles', (req, res) => {
+  const profiles = loadTestProfiles();
+  res.json(profiles);
 });
 
-app.post('/api/profiles', async (req, res) => {
-  try {
-    const profiles = await loadTestProfiles();
-    const newProfile = {
-      id: Date.now().toString(),
-      ...req.body,
-      hasCompleteProfile: true
-    };
-    profiles.push(newProfile);
-    
-    try {
-      await fs.writeFile(
-        path.join(__dirname, 'test-profiles.json'),
-        JSON.stringify(profiles, null, 2)
-      );
-    } catch (writeError) {
-      console.warn('Could not write to profiles file:', writeError);
-    }
-    
-    res.status(201).json(newProfile);
-  } catch (error) {
-    console.error('Error creating profile:', error);
-    res.status(500).json({ error: 'Failed to create profile' });
-  }
+app.post('/api/profiles', (req, res) => {
+  const profiles = loadTestProfiles();
+  const newProfile = {
+    id: Date.now().toString(),
+    ...req.body,
+  };
+  profiles.push(newProfile);
+  res.status(201).json(newProfile);
 });
 
-app.put('/api/profiles/:id', async (req, res) => {
-  try {
-    const profiles = await loadTestProfiles();
-    const index = profiles.findIndex(p => p.id === req.params.id);
-    if (index === -1) {
-      return res.status(404).json({ error: 'Profile not found' });
-    }
-    profiles[index] = { ...profiles[index], ...req.body };
-    await fs.writeFile(
-      path.join(__dirname, 'test-profiles.json'),
-      JSON.stringify(profiles, null, 2)
-    );
-    res.json(profiles[index]);
-  } catch (error) {
-    console.error('Error updating profile:', error);
-    res.status(500).json({ error: 'Failed to update profile' });
+app.put('/api/profiles/:id', (req, res) => {
+  const profiles = loadTestProfiles();
+  const index = profiles.findIndex(p => p.id === req.params.id);
+  if (index === -1) {
+    return res.status(404).json({ error: 'Profile not found' });
   }
+  profiles[index] = { ...profiles[index], ...req.body };
+  res.json(profiles[index]);
 });
 
 app.get('/api/matches/:profileId', (req, res) => {
@@ -227,10 +171,10 @@ const startServer = async () => {
     if (portInUse) {
       console.log(`Port ${PORT} is in use. Attempting to kill the process...`);
       await killPortProcess(PORT);
-      // Wait a bit for the port to be released
+      // Wait a moment for the port to be freed
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
-
+    
     app.listen(PORT, () => {
       console.log(`Server is running on port ${PORT}`);
     });
