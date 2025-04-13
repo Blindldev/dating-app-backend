@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
@@ -12,7 +13,7 @@ const PORT = process.env.PORT || 3002;
 
 // Configure CORS
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:3001'],
+  origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
@@ -22,19 +23,20 @@ app.use(cors({
 
 // Add security headers
 app.use((req, res, next) => {
-  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
-  res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+  res.setHeader('Cross-Origin-Embedder-Policy', 'credentialless');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', 'http://localhost:3000');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
   next();
 });
 
 app.use(express.json());
 
 // Initialize Google OAuth client
-const googleClient = new OAuth2Client({
-  clientId: process.env.GOOGLE_CLIENT_ID,
-  clientSecret: process.env.GOOGLE_CLIENT_SECRET
-});
+const GOOGLE_CLIENT_ID = '1052505070503-3v2qk7vq2q2q2q2q2q2q2q2q2q2q2q2.apps.googleusercontent.com';
+const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
 // Middleware to verify Google token
 const verifyGoogleToken = async (req, res, next) => {
@@ -44,22 +46,27 @@ const verifyGoogleToken = async (req, res, next) => {
       return res.status(400).json({ error: 'No token provided' });
     }
 
+    console.log('Verifying token with client ID:', GOOGLE_CLIENT_ID);
     const ticket = await googleClient.verifyIdToken({
       idToken: token,
-      audience: process.env.GOOGLE_CLIENT_ID
+      audience: GOOGLE_CLIENT_ID
     });
 
     const payload = ticket.getPayload();
     
     // Verify the token was issued to our application
-    if (payload.aud !== process.env.GOOGLE_CLIENT_ID) {
-      throw new Error('Invalid token audience');
+    if (payload.aud !== GOOGLE_CLIENT_ID) {
+      console.error('Token audience mismatch:', {
+        expected: GOOGLE_CLIENT_ID,
+        received: payload.aud
+      });
+      return res.status(401).json({ error: 'Invalid token audience' });
     }
 
     // Verify the token was issued by Google
     if (payload.iss !== 'https://accounts.google.com' && 
         payload.iss !== 'accounts.google.com') {
-      throw new Error('Invalid token issuer');
+      return res.status(401).json({ error: 'Invalid token issuer' });
     }
 
     req.googleUser = {
@@ -71,24 +78,97 @@ const verifyGoogleToken = async (req, res, next) => {
     next();
   } catch (error) {
     console.error('Google token verification error:', error);
-    res.status(401).json({ error: 'Invalid token' });
+    res.status(401).json({ error: error.message || 'Invalid token' });
   }
 };
+
+// Check if email exists
+app.post('/api/auth/check-email', (req, res) => {
+  const { email } = req.body;
+  console.log('Checking email:', email);
+  
+  const user = testProfiles.find(profile => profile.email === email);
+  const exists = !!user;
+  
+  res.json({ exists });
+});
+
+// Sign in with email and password
+app.post('/api/auth/signin', (req, res) => {
+  const { email, password, isNewUser } = req.body;
+  console.log('Sign in attempt:', { email, isNewUser: !!isNewUser });
+
+  const user = testProfiles.find(profile => profile.email === email);
+  console.log('User found:', !!user);
+  
+  if (!user && isNewUser) {
+    console.log('Creating new user for:', email);
+    // Create new user
+    const newUser = {
+      id: testProfiles.length + 1,
+      email,
+      password,
+      name: '',
+      age: null,
+      gender: '',
+      lookingFor: '',
+      location: '',
+      occupation: '',
+      education: '',
+      bio: '',
+      interests: [],
+      hobbies: [],
+      languages: [],
+      photos: [],
+      relationshipGoals: '',
+      smoking: '',
+      drinking: '',
+      firstDateIdeas: [],
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+      settings: {
+        notifications: true,
+        emailUpdates: true
+      }
+    };
+    
+    testProfiles.push(newUser);
+    console.log('New user created successfully');
+    res.json({ 
+      isNewUser: true,
+      profile: newUser
+    });
+  } else if (!user) {
+    console.log('User not found and not a new user');
+    return res.status(401).json({ error: 'Invalid email or password' });
+  } else if (user.password !== password) {
+    console.log('Invalid password for user:', email);
+    return res.status(401).json({ error: 'Invalid password' });
+  } else {
+    console.log('Successful sign in for existing user:', email);
+    res.json({ 
+      isNewUser: false,
+      profile: user
+    });
+  }
+});
 
 // Google authentication endpoint
 app.post('/api/auth/google', verifyGoogleToken, async (req, res) => {
   try {
     const { email, name, picture } = req.googleUser;
+    console.log('Google sign-in attempt:', email);
     
     // Check if user exists in test profiles
     let user = testProfiles.find(profile => profile.email === email);
     
     if (!user) {
-      // Create new user from Google profile with minimal required fields
+      console.log('Creating new Google user:', email);
+      // Create new user
       user = {
         id: testProfiles.length + 1,
         email: email,
-        name: name,
+        name: name || '',
         photos: [picture],
         status: 'active',
         createdAt: new Date().toISOString(),
@@ -96,12 +176,10 @@ app.post('/api/auth/google', verifyGoogleToken, async (req, res) => {
           notifications: true,
           emailUpdates: true
         },
-        // Initialize empty arrays for required fields
         interests: [],
         hobbies: [],
         languages: [],
         firstDateIdeas: [],
-        // Add other required fields with default values
         age: null,
         gender: null,
         lookingFor: null,
@@ -114,9 +192,12 @@ app.post('/api/auth/google', verifyGoogleToken, async (req, res) => {
         drinking: null
       };
       testProfiles.push(user);
+      console.log('New Google user created:', user);
+      return res.json({ profile: user, isNewUser: true });
     }
 
-    res.json(user);
+    console.log('Existing Google user found:', user);
+    res.json({ profile: user, isNewUser: false });
   } catch (error) {
     console.error('Google auth error:', error);
     res.status(500).json({ error: 'Authentication failed' });
@@ -168,70 +249,6 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Check if email exists
-app.post('/api/auth/check-email', async (req, res) => {
-  try {
-    const { email } = req.body;
-    const user = testProfiles.find(profile => profile.email === email);
-    res.json({ exists: !!user });
-  } catch (error) {
-    console.error('Email check error:', error);
-    res.status(500).json({ error: 'Failed to check email' });
-  }
-});
-
-// Sign in or create new user
-app.post('/api/auth/signin', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    
-    // Check if user exists
-    let user = testProfiles.find(profile => profile.email === email);
-    
-    if (!user) {
-      // Create new user
-      user = {
-        id: testProfiles.length + 1,
-        email,
-        password, // Note: In production, hash the password
-        name: '',
-        age: null,
-        gender: null,
-        lookingFor: null,
-        location: null,
-        occupation: null,
-        education: null,
-        bio: null,
-        interests: [],
-        hobbies: [],
-        languages: [],
-        photos: [],
-        firstDateIdeas: [],
-        relationshipGoals: null,
-        smoking: null,
-        drinking: null,
-        status: 'active',
-        createdAt: new Date().toISOString(),
-        settings: {
-          notifications: true,
-          emailUpdates: true
-        }
-      };
-      testProfiles.push(user);
-      res.json({ profile: user, isNewUser: true });
-    } else {
-      // Verify password for existing user
-      if (user.password !== password) {
-        return res.status(401).json({ error: 'Invalid password' });
-      }
-      res.json({ profile: user, isNewUser: false });
-    }
-  } catch (error) {
-    console.error('Sign in error:', error);
-    res.status(500).json({ error: 'Authentication failed' });
-  }
-});
-
 // Get current profile
 app.get('/api/profiles/current', (req, res) => {
   try {
@@ -249,14 +266,42 @@ app.get('/api/profiles/current', (req, res) => {
   }
 });
 
-// Update profile
+// Create or update profile
 app.post('/api/profiles', (req, res) => {
+  const { email, ...profileData } = req.body;
+  console.log('Creating/updating profile for:', email);
+
   try {
-    const updatedProfile = req.body;
-    // In a real app, we would save this to a database
-    res.json(updatedProfile);
+    // Find the user by email
+    const userIndex = testProfiles.findIndex(profile => profile.email === email);
+    
+    if (userIndex === -1) {
+      console.log('User not found:', email);
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Update the profile with new data
+    const updatedProfile = {
+      ...testProfiles[userIndex],
+      ...profileData,
+      status: 'pending',
+      updatedAt: new Date().toISOString(),
+      isProfileComplete: true // Add this flag to match sign-in response
+    };
+
+    // Update the profile in the array
+    testProfiles[userIndex] = updatedProfile;
+    console.log('Profile updated successfully:', email);
+
+    // Return the updated profile in the same format as sign-in
+    const { password, ...profileWithoutPassword } = updatedProfile;
+    res.json({ 
+      profile: profileWithoutPassword,
+      isNewUser: false // Since we're updating an existing profile
+    });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Error updating profile:', error);
+    res.status(500).json({ error: 'Failed to update profile' });
   }
 });
 
