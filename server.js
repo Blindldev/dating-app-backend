@@ -157,20 +157,15 @@ app.post('/api/auth/signin', (req, res) => {
 // Google authentication endpoint
 app.post('/api/auth/google', async (req, res) => {
   try {
-    console.log('Received Google Sign-In request:', req.body);
     const { credential } = req.body;
-    
-    if (!credential) {
-      console.error('No credential provided in request');
-      return res.status(400).json({ error: 'No token provided' });
-    }
+    console.log('Received Google Sign-In request');
 
-    const client = new OAuth2Client('910532636592-98noic506pegni3jm6omq7p610u8gdrh.apps.googleusercontent.com');
-    console.log('Verifying token with client ID:', '910532636592-98noic506pegni3jm6omq7p610u8gdrh.apps.googleusercontent.com');
-    
+    const clientId = '910532636592-98noic506pegni3jm6omq7p610u8gdrh.apps.googleusercontent.com';
+    console.log('Verifying token with client ID:', clientId);
+
     const ticket = await client.verifyIdToken({
       idToken: credential,
-      audience: '910532636592-98noic506pegni3jm6omq7p610u8gdrh.apps.googleusercontent.com'
+      audience: clientId,
     });
 
     const payload = ticket.getPayload();
@@ -181,25 +176,31 @@ app.post('/api/auth/google', async (req, res) => {
       aud: payload.aud
     });
 
-    const email = payload.email;
-    const picture = payload.picture;
-    const name = payload.name;
-
+    const { email, name, picture } = payload;
     console.log('Google Sign-In attempt:', { email, name });
 
-    // Check if user exists
-    let user = testProfiles.find(p => p.email === email);
-    const isNewUser = !user;
+    if (!email) {
+      console.error('Email is missing from Google authentication payload');
+      throw new Error('Email is required from Google authentication');
+    }
 
-    if (isNewUser) {
-      // Create new user with all required fields
-      user = {
+    // Check if user exists
+    let user = testProfiles.find(u => u.email === email);
+    console.log('User lookup result:', { email, exists: !!user });
+    
+    if (!user) {
+      console.log('Creating new user with email:', email);
+      // Create new user with Google data
+      const newUser = {
         id: testProfiles.length + 1,
-        email,
-        password: 'google-auth', // Placeholder since we're using Google auth
+        email: email, // Explicitly set the email
         name: name || '',
-        picture: picture || null,
-        age: null,
+        picture: picture || '',
+        status: 'active',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        // Initialize with default values
+        age: '',
         gender: '',
         lookingFor: '',
         location: '',
@@ -209,31 +210,46 @@ app.post('/api/auth/google', async (req, res) => {
         interests: [],
         hobbies: [],
         languages: [],
-        firstDateIdeas: [],
+        photos: [picture],
         relationshipGoals: '',
         smoking: '',
         drinking: '',
-        status: 'pending',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        settings: {
-          notifications: true,
-          emailUpdates: true
-        }
+        firstDateIdeas: [],
+        settings: { notifications: true, emailUpdates: true }
       };
-      testProfiles.push(user);
-      console.log('New user created from Google:', email);
+      
+      testProfiles.push(newUser);
+      user = newUser;
+      console.log('New user created from Google:', { 
+        email: user.email,
+        name: user.name,
+        id: user.id 
+      });
+    } else {
+      // Update existing user's name and picture if changed
+      if (user.name !== name || user.picture !== picture) {
+        user.name = name;
+        user.picture = picture;
+        user.updatedAt = new Date().toISOString();
+        console.log('Updated existing user profile:', { 
+          email: user.email,
+          name: user.name 
+        });
+      }
     }
 
-    // Return user data without password
+    // Remove sensitive data before sending response
     const { password, ...userWithoutPassword } = user;
-    res.json({
-      isNewUser,
-      profile: userWithoutPassword
+    console.log('Sending response with user data:', { 
+      email: userWithoutPassword.email, 
+      name: userWithoutPassword.name,
+      hasEmail: !!userWithoutPassword.email,
+      id: userWithoutPassword.id
     });
+    res.json({ success: true, user: userWithoutPassword });
   } catch (error) {
     console.error('Google Sign-In error:', error);
-    res.status(500).json({ error: error.message || 'Failed to authenticate with Google' });
+    res.status(500).json({ error: 'Authentication failed' });
   }
 });
 
@@ -303,27 +319,31 @@ app.get('/api/profiles/current', (req, res) => {
 app.post('/api/profiles/update', (req, res) => {
   try {
     const { email, profileData } = req.body;
-    console.log('Received profile update request:', req.body);
+    console.log('Updating profile for:', email);
+    console.log('Profile data:', profileData);
 
-    const userIndex = testProfiles.findIndex(profile => profile.email === email);
+    const userIndex = testProfiles.findIndex(u => u.email === email);
     if (userIndex === -1) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Update all fields from profileData
-    testProfiles[userIndex] = {
+    // Create updated profile while preserving email
+    const updatedProfile = {
       ...testProfiles[userIndex],
       ...profileData,
+      email: email, // Explicitly set the email
       updatedAt: new Date().toISOString()
     };
 
+    // Update the user profile
+    testProfiles[userIndex] = updatedProfile;
+
     // Remove password from response
-    const { password, ...updatedProfile } = testProfiles[userIndex];
-    console.log('Profile updated successfully:', updatedProfile);
-    res.json(updatedProfile);
+    const { password, ...userWithoutPassword } = updatedProfile;
+    res.json({ success: true, user: userWithoutPassword });
   } catch (error) {
-    console.error('Error updating profile:', error);
-    res.status(500).json({ error: error.message || 'Failed to update profile' });
+    console.error('Profile update error:', error);
+    res.status(500).json({ error: 'Failed to update profile' });
   }
 });
 
@@ -347,28 +367,26 @@ app.get('/api/matches/:profileId', (req, res) => {
 
 // Routes
 app.get('/api/profiles', (req, res) => {
-  const profiles = loadTestProfiles();
-  res.json(profiles);
+  res.json(testProfiles);
 });
 
 app.post('/api/profiles', (req, res) => {
-  const profiles = loadTestProfiles();
   const newProfile = {
-    id: Date.now().toString(),
+    id: testProfiles.length + 1,
     ...req.body,
+    createdAt: new Date().toISOString()
   };
-  profiles.push(newProfile);
+  testProfiles.push(newProfile);
   res.status(201).json(newProfile);
 });
 
 app.put('/api/profiles/:id', (req, res) => {
-  const profiles = loadTestProfiles();
-  const index = profiles.findIndex(p => p.id === req.params.id);
+  const index = testProfiles.findIndex(p => p.id === parseInt(req.params.id));
   if (index === -1) {
     return res.status(404).json({ error: 'Profile not found' });
   }
-  profiles[index] = { ...profiles[index], ...req.body };
-  res.json(profiles[index]);
+  testProfiles[index] = { ...testProfiles[index], ...req.body };
+  res.json(testProfiles[index]);
 });
 
 app.get('/api/chicago/neighborhoods', (req, res) => {
@@ -424,6 +442,21 @@ app.post('/api/matches/test', (req, res) => {
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('Error:', err);
+  res.status(err.status || 500).json({
+    error: err.message || 'Internal Server Error'
+  });
+});
+
+// Handle 404s
+app.use((req, res) => {
+  res.status(404).json({
+    error: 'Not Found'
+  });
 });
 
 // Start server
