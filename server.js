@@ -299,38 +299,31 @@ app.get('/api/profiles/current', (req, res) => {
   }
 });
 
-// Create or update profile
-app.post('/api/profiles', async (req, res) => {
+// Update profile endpoint
+app.post('/api/profiles/update', (req, res) => {
   try {
-    const { email, ...profileData } = req.body;
-    console.log('Received profile update request:', { email, profileData });
+    const { email, profileData } = req.body;
+    console.log('Received profile update request:', req.body);
 
-    // Find the user in testProfiles
-    const userIndex = testProfiles.findIndex(p => p.email === email);
+    const userIndex = testProfiles.findIndex(profile => profile.email === email);
     if (userIndex === -1) {
-      console.log('User not found:', email);
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Update the profile
-    const updatedProfile = {
+    // Update all fields from profileData
+    testProfiles[userIndex] = {
       ...testProfiles[userIndex],
       ...profileData,
-      status: 'pending',
       updatedAt: new Date().toISOString()
     };
 
     // Remove password from response
-    const { password, ...profileWithoutPassword } = updatedProfile;
-
-    // Update the profile in the array
-    testProfiles[userIndex] = updatedProfile;
-
-    console.log('Profile updated successfully:', profileWithoutPassword);
-    res.json(profileWithoutPassword);
+    const { password, ...updatedProfile } = testProfiles[userIndex];
+    console.log('Profile updated successfully:', updatedProfile);
+    res.json(updatedProfile);
   } catch (error) {
     console.error('Error updating profile:', error);
-    res.status(500).json({ error: 'Failed to update profile' });
+    res.status(500).json({ error: error.message || 'Failed to update profile' });
   }
 });
 
